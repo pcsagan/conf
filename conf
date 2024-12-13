@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+version=1.0
+conf=${HOME}/.config/conf/conf.conf
+
+read -r -d '' usage << EOM
+usage: conf <name> [-d] [-h] [-v]
+
+Edit configuration files by name using \$EDITOR. Uses sudoedit when necessary.
+Run 'conf' or 'conf conf' to edit conf configuration file.
+
+optional arguments:
+  -d, --defaults    write defaults to configuration file
+  -h, --help        show this help message and exit
+  -v, --version     show program's version number and exit
+EOM
+
+function append_default_config {
+    [[ -n "$(command -v $1)" ]] && default_config+="$1=$2\n"
+}
+
+function write_default_config {    
+    mkdir -p ${conf%/*}
+    append_default_config "pacman"   "/etc/pacman.conf"
+    append_default_config "yay"      "\$pacman"
+    append_default_config "paru"     "\$pacman"
+    append_default_config "neofetch" "\${HOME}/.config/neofetch/config.conf"
+    printf "$default_config" > "$conf"
+    echo "Default config written to $conf"
+}
+
+function quit {
+    local code=$1
+    [[ $# -gt 1 ]] && shift && printf "%s\n" "$@"    
+    [[ -n "$code" ]] && exit $code
+    exit 0
+}
+
+function process_arguments {
+    if [[ $# -eq 0 ]]; then
+        target="conf"
+    else
+        for i in "$@"; do
+            case $i in
+                -d|--defaults)
+                    write_default_config
+                    quit 0
+                    ;;
+                -h|--help)
+                    quit 0 "$usage"
+                    ;;
+                -v|--version)
+                    quit 0 "conf v$version"
+                    ;;            
+                *)
+                    target=$i
+                    ;;
+            esac
+        done
+    fi
+}
+
+function verify_editor {
+    [[ -z "$EDITOR" ]] && quit 1 "Environment variable EDITOR must be set."
+}
+
+function load_config {
+    [[ ! -f "$conf" ]] && write_default_config
+    source $conf
+}
+
+function resolve_target {
+    [[ ! "$target" =~ ^[a-z][a-zA-Z0-9_]*$ ]] && quit 1 "$target is not a valid conf name"
+    local resolved=${!target}
+    [[ -z "$resolved" ]] && quit 1 "Configuration '$target' not found in $conf"
+    [[ ! -f "$resolved" ]] && quit 1 "File $target does not exist"      
+    target=$resolved         
+}
+
+function edit_target {
+    if [[ ! -w "$target" ]]; then
+        [[ -z "$(command -v sudoedit)" ]] && quit 1 "Write permission denied for file $target and command sudoedit not found."
+        sudoedit $target
+    else
+        $EDITOR $target
+    fi
+}
+
+function main {
+    process_arguments "$@"
+    verify_editor
+    load_config
+    resolve_target
+    edit_target
+}
+
+main "$@"
